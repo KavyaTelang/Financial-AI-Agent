@@ -1,9 +1,6 @@
-phidata>=2.7.0 
+phidata==2.7.7
 python-dotenv
-packaging
 duckduckgo-search
-fastapi
-uvicorn
 groq
 openai
 streamlit
