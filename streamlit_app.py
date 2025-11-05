@@ -77,45 +77,41 @@ tool_definitions = [
     },
 ]
 
+# In streamlit_app.py
+
 def get_llm_response(prompt: str):
     """This function orchestrates the entire AI interaction manually."""
     
-    # Use the powerful model because our manual process is more token-efficient
     llm = Groq(model="llama-3.3-70b-versatile", api_key=st.secrets.get("GROQ_API_KEY"))
 
-    # --- Step 1: First call to the AI to decide which tool to use ---
     messages = [
         {"role": "system", "content": "You are a helpful assistant. Given a user query, decide if you need to call a function to get information. If so, respond with the function call in JSON format."},
         {"role": "user", "content": prompt},
     ]
     
-    # Make the first API call
-    first_response = llm.create(messages=messages, tools=tool_definitions, tool_choice="auto")
+    # --- THIS IS THE FIX ---
+    # Change .create() to .invoke()
+    first_response = llm.invoke(messages=messages, tools=tool_definitions, tool_choice="auto")
     
-    # Check if the AI decided to call a tool
     if first_response.choices[0].message.tool_calls:
         tool_call = first_response.choices[0].message.tool_calls[0]
         function_name = tool_call.function.name
         function_args = json.loads(tool_call.function.arguments)
         
         if function_name in tools:
-            # --- Step 2: If a tool is chosen, execute it ---
             yield "🔍 Accessing financial data...\n\n"
             function_to_call = tools[function_name]
             tool_output = function_to_call(**function_args)
             
-            # --- Step 3: Second call to the AI to summarize the tool's output ---
             messages.append(first_response.choices[0].message)
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": function_name, "content": tool_output})
             
-            # Make the second API call
             second_response_stream = llm.response_stream(messages=messages)
             for chunk in second_response_stream:
                 yield chunk
         else:
             yield "Error: AI chose a tool that doesn't exist."
     else:
-        # If no tool is needed, just stream the direct answer
         response_stream = llm.response_stream(messages=messages)
         for chunk in response_stream:
             yield chunk
