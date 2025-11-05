@@ -48,57 +48,39 @@ class AlphaVantageTools(Toolkit):
             return f"Company Overview for {ticker}:\n" + "\n".join(details)
         except Exception as e: return f"Error getting company overview for {ticker}: {e}"
 
+# In streamlit_app.py
+
 @st.cache_resource
 def get_multi_ai_agent():
-    # ... (Agent definitions are the same as before, no changes needed)
-    web_search_agent = Agent(name="Web Search Agent", role="Search the web for information.", model=Groq(id="llama-3.3-70b-versatile", api_key=groq_api_key), tools=[DuckDuckGo()], markdown=True)
-    finance_agent = Agent(name="Finance AI Agent", model=Groq(id="llama-3.3-70b-versatile", api_key=groq_api_key), role="You are a world-class financial analyst.", tools=[AlphaVantageTools()], instructions=["Use tables to display data"], markdown=True)
-    multi_ai_agent = Agent(team=[web_search_agent, finance_agent], model=Groq(id="llama-3.3-70b-versatile", api_key=groq_api_key), instructions=["Always include sources", "Use tables to display data", "When delegating tasks, provide clear details in the 'additional_information' field for the specialist agent."], markdown=True)
+    """This function creates and returns the multi-agent assistant."""
+    # Using a smaller, more token-efficient model to stay in the free tier
+    model_id = "llama3-8b-8192"
+
+    web_search_agent = Agent(
+        name="Web Search Agent",
+        role="Search the web for information.",
+        model=Groq(id=model_id, api_key=groq_api_key),
+        tools=[DuckDuckGo()],
+        markdown=True,
+    )
+    
+    finance_agent = Agent(
+        name="Finance AI Agent",
+        model=Groq(id=model_id, api_key=groq_api_key),
+        role="You are a world-class financial analyst.",
+        tools=[AlphaVantageTools()],
+        instructions=["Use tables to display data"],
+        markdown=True,
+    )
+    
+    multi_ai_agent = Agent(
+        team=[web_search_agent, finance_agent],
+        model=Groq(id=model_id, api_key=groq_api_key),
+        instructions=[
+            "Always include sources", 
+            "Use tables to display data",
+            "When delegating tasks, provide clear details in the 'additional_information' field for the specialist agent."
+        ],
+        markdown=True,
+    )
     return multi_ai_agent
-
-# --- STREAMLIT UI ---
-st.set_page_config(page_title="Financial AI Agent", page_icon="📈")
-st.title("📈 Financial AI Agent")
-if not groq_api_key or not alpha_vantage_api_key:
-    st.error("API keys are not configured. Please add GROQ_API_KEY and ALPHA_VANTAGE_API_KEY to your Streamlit secrets.")
-else:
-    st.sidebar.markdown("### Built by Kavya Telang")
-    st.sidebar.markdown("This multi-agent assistant can search the web and access real-time financial data.")
-    multi_ai_agent = get_multi_ai_agent()
-    if "messages" not in st.session_state:
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! How can I help you with your financial research today?"}]
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-    if prompt := st.chat_input("Ask me about stocks, news, and more..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            full_response = ""
-            try:
-                # ... (The stream-handling loop is the same)
-                for chunk in multi_ai_agent.run(prompt, stream=True):
-                    if isinstance(chunk, dict) and "content" in chunk and chunk["content"] is not None:
-                        full_response += chunk["content"]
-                        placeholder.markdown(full_response + "▌")
-                    elif isinstance(chunk, str):
-                        full_response += chunk
-                        placeholder.markdown(full_response + "▌")
-                    elif isinstance(chunk, dict) and "tool_name" in chunk:
-                        tool_name = chunk["tool_name"]
-                        if tool_name == "transfer_task_to_finance_ai_agent":
-                            placeholder.markdown("🔍 Accessing financial data...")
-                        elif tool_name == "transfer_task_to_web_search_agent":
-                            placeholder.markdown("🌐 Searching the web...")
-                placeholder.markdown(full_response)
-            # --- THIS IS THE ONLY PART THAT CHANGED ---
-            except Exception as e:
-                # Keep the user-friendly message
-                full_response = "Sorry, an error occurred. This can happen if the external data source is slow or unavailable. Please try your request again in a moment."
-                # Add the specific technical error for debugging purposes
-                full_response += f"\n\n**Debug Info:**\n```\n{traceback.format_exc()}\n```"
-                placeholder.markdown(full_response)
-
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
