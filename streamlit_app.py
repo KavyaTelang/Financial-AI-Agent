@@ -1,4 +1,4 @@
-# streamlit_app.py (FINAL OPTIMIZED VERSION)
+# streamlit_app.py (FINAL CORRECTED VERSION)
 
 import os
 import streamlit as st
@@ -43,15 +43,10 @@ class AlphaVantageTools(Toolkit):
             fd = FundamentalData(key=self.api_key, output_format='pandas', treat_info_as_error=True, timeout=20)
             overview, _ = fd.get_company_overview(symbol=ticker)
             if overview.empty: return f"No company overview found for {ticker}."
-            
-            # --- THE FIX: Select only the most important fields to save tokens ---
             key_metrics = {
-                "Name": overview.get("Name", ["N/A"])[0],
-                "Description": overview.get("Description", ["N/A"])[0][:200] + "...", # Truncate description
-                "MarketCapitalization": overview.get("MarketCapitalization", ["N/A"])[0],
-                "EBITDA": overview.get("EBITDA", ["N/A"])[0],
-                "PERatio": overview.get("PERatio", ["N/A"])[0],
-                "52WeekHigh": overview.get("52WeekHigh", ["N/A"])[0],
+                "Name": overview.get("Name", ["N/A"])[0], "Description": overview.get("Description", ["N/A"])[0][:200] + "...",
+                "MarketCapitalization": overview.get("MarketCapitalization", ["N/A"])[0], "EBITDA": overview.get("EBITDA", ["N/A"])[0],
+                "PERatio": overview.get("PERatio", ["N/A"])[0], "52WeekHigh": overview.get("52WeekHigh", ["N/A"])[0],
                 "52WeekLow": overview.get("52WeekLow", ["N/A"])[0],
             }
             details = [f"**{key}**: {value}" for key, value in key_metrics.items()]
@@ -65,7 +60,8 @@ def get_financial_agent():
     return Agent(
         name="Financial Analyst",
         role="You are a helpful financial analyst. You have access to stock news, company overviews, and web search.",
-        model=Groq(model="llama-3.3-70b-versatile", api_key=groq_api_key),
+        # --- THIS IS THE FIX ---
+        model=Groq(id="llama-3.3-70b-versatile", api_key=groq_api_key),
         tools=[AlphaVantageTools(), DuckDuckGo()],
         instructions=[
             "If the user asks a vague question (like just a ticker), ask for clarification.",
@@ -84,21 +80,16 @@ if not groq_api_key or not alpha_vantage_api_key:
 else:
     st.sidebar.markdown("### Built by Kavya Telang")
     st.sidebar.markdown("This assistant can access real-time financial data and search the web.")
-    
     financial_agent = get_financial_agent()
-    
     if "messages" not in st.session_state:
         st.session_state.messages = [{"role": "assistant", "content": "Hi! How can I help you today?"}]
-    
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-            
     if prompt := st.chat_input("Ask about stock news, company metrics, etc..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-            
         with st.chat_message("assistant"):
             placeholder = st.empty()
             full_response = ""
