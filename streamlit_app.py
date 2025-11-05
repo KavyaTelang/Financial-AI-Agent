@@ -50,11 +50,16 @@ class AlphaVantageTools(Toolkit):
 
 # In streamlit_app.py
 
+# In streamlit_app.py
+
+# In streamlit_app.py
+
 @st.cache_resource
 def get_multi_ai_agent():
     """This function creates and returns the multi-agent assistant."""
-    # Using a smaller, more token-efficient model to stay in the free tier
-    model_id = "llama3-8b-8192"
+    # --- THIS IS THE FINAL FIX ---
+    # Switching to the powerful and token-efficient qwen-32b model.
+    model_id = "qwen/qwen3-32b"
 
     web_search_agent = Agent(
         name="Web Search Agent",
