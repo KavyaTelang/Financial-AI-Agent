@@ -32,15 +32,22 @@ def get_multi_ai_agent():
         instructions=["Use tables to display data"],
         markdown=True,
     )
+    
+    # --- THIS IS THE AGENT WITH THE FIX ---
     multi_ai_agent = Agent(
         team=[web_search_agent, finance_agent],
         model=Groq(id="llama-3.3-70b-versatile"),
-        instructions=["Always include sources", "Use tables to display data"],
+        instructions=[
+            "Always include sources", 
+            "Use tables to display data",
+            # --- THIS NEW LINE IS THE FIX ---
+            "When delegating tasks, provide clear details in the 'additional_information' field for the specialist agent."
+        ],
         markdown=True,
     )
     return multi_ai_agent
 
-# --- STREAMLIT UI ---
+# --- STREAMLIT UI (No changes from here down) ---
 
 st.set_page_config(page_title="Financial AI Agent", page_icon="📈")
 st.title("📈 Financial AI Agent")
@@ -68,24 +75,20 @@ if prompt := st.chat_input("Ask me about stocks, news, and more..."):
         full_response = ""
         
         try:
-            # --- THIS IS THE NEW, SMARTER LOOP ---
             for chunk in multi_ai_agent.run(prompt, stream=True):
-                # Check if the chunk is a dictionary with a 'content' key
                 if isinstance(chunk, dict) and "content" in chunk and chunk["content"] is not None:
                     full_response += chunk["content"]
                     placeholder.markdown(full_response + "▌")
-                # Also handle the case where the final output is a plain string
                 elif isinstance(chunk, str):
                     full_response += chunk
                     placeholder.markdown(full_response + "▌")
-                # If debug is on, show everything else
                 elif show_debug_output:
                     st.write(chunk)
             
             placeholder.markdown(full_response)
         
         except Exception as e:
-            full_response = "Sorry, an error occurred. The external data source may be slow or unavailable. Please try again later."
+            full_response = "Sorry, an error occurred. This can happen if the external data source (like Yahoo Finance) is slow or unavailable. Please try your request again in a moment."
             placeholder.markdown(full_response)
             traceback.print_exc()
 
