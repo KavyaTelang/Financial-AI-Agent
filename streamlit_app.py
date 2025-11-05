@@ -77,3 +77,24 @@ else:
             try:
                 # --- THIS IS THE FINAL, ROBUST LOOP ---
                 final_output_from_run_response = ""
+                for chunk in financial_agent.run(prompt, stream=True):
+                    # If it's a string, add it to our streaming display
+                    if isinstance(chunk, str):
+                        full_response += chunk
+                        placeholder.markdown(full_response + "▌")
+                    # If it's the final RunResponse object, grab the output from it
+                    elif isinstance(chunk, RunResponse):
+                        if chunk.output:
+                            final_output_from_run_response = chunk.output
+                
+                # After the loop, display the definitive final answer
+                # This handles cases where the text was ONLY in the final object
+                if final_output_from_run_response:
+                    full_response = final_output_from_run_response
+                
+                placeholder.markdown(full_response)
+
+            except Exception as e:
+                full_response = "Sorry, an error occurred. The daily token limit may have been reached or the external data source is unavailable. Please try again in a few minutes."
+                placeholder.markdown(full_response)
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
