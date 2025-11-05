@@ -1,6 +1,5 @@
-phidata 
+phidata>=2.7.0 
 python-dotenv
-yfinance
 packaging
 duckduckgo-search
 fastapi
@@ -8,3 +7,4 @@ uvicorn
 groq
 openai
 streamlit
+alpha-vantage
