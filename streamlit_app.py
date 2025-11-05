@@ -84,3 +84,50 @@ def get_multi_ai_agent():
         markdown=True,
     )
     return multi_ai_agent
+
+# --- STREAMLIT UI ---
+st.set_page_config(page_title="Financial AI Agent", page_icon="📈")
+st.title("📈 Financial AI Agent")
+if not groq_api_key or not alpha_vantage_api_key:
+    st.error("API keys are not configured. Please add GROQ_API_KEY and ALPHA_VANTAGE_API_KEY to your Streamlit secrets.")
+else:
+    st.sidebar.markdown("### Built by Kavya Telang")
+    st.sidebar.markdown("This multi-agent assistant can search the web and access real-time financial data.")
+    multi_ai_agent = get_multi_ai_agent()
+    if "messages" not in st.session_state:
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! How can I help you with your financial research today?"}]
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    if prompt := st.chat_input("Ask me about stocks, news, and more..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            full_response = ""
+            try:
+                # ... (The stream-handling loop is the same)
+                for chunk in multi_ai_agent.run(prompt, stream=True):
+                    if isinstance(chunk, dict) and "content" in chunk and chunk["content"] is not None:
+                        full_response += chunk["content"]
+                        placeholder.markdown(full_response + "▌")
+                    elif isinstance(chunk, str):
+                        full_response += chunk
+                        placeholder.markdown(full_response + "▌")
+                    elif isinstance(chunk, dict) and "tool_name" in chunk:
+                        tool_name = chunk["tool_name"]
+                        if tool_name == "transfer_task_to_finance_ai_agent":
+                            placeholder.markdown("🔍 Accessing financial data...")
+                        elif tool_name == "transfer_task_to_web_search_agent":
+                            placeholder.markdown("🌐 Searching the web...")
+                placeholder.markdown(full_response)
+            # --- THIS IS THE ONLY PART THAT CHANGED ---
+            except Exception as e:
+                # Keep the user-friendly message
+                full_response = "Sorry, an error occurred. This can happen if the external data source is slow or unavailable. Please try your request again in a moment."
+                # Add the specific technical error for debugging purposes
+                full_response += f"\n\n**Debug Info:**\n```\n{traceback.format_exc()}\n```"
+                placeholder.markdown(full_response)
+
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
