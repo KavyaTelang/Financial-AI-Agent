@@ -1,4 +1,4 @@
-# streamlit_app.py (FINAL CORRECTED VERSION)
+# streamlit_app.py (FINAL DEFINITIVE VERSION)
 
 import os
 import streamlit as st
@@ -28,7 +28,6 @@ class AlphaVantageTools(Toolkit):
         self.register(self.get_company_overview)
 
     def get_stock_news(self, ticker: str) -> str:
-        """Gets the 3 latest news article summaries for a stock ticker."""
         try:
             url = f'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers={ticker}&limit=3&apikey={self.api_key}'
             r = requests.get(url, timeout=20); r.raise_for_status(); data = r.json()
@@ -38,7 +37,6 @@ class AlphaVantageTools(Toolkit):
         except Exception as e: return f"Error getting news: {e}"
 
     def get_company_overview(self, ticker: str) -> str:
-        """Gets key financial metrics for a company from its overview."""
         try:
             fd = FundamentalData(key=self.api_key, output_format='pandas', treat_info_as_error=True, timeout=20)
             overview, _ = fd.get_company_overview(symbol=ticker)
@@ -51,16 +49,14 @@ class AlphaVantageTools(Toolkit):
             }
             details = [f"**{key}**: {value}" for key, value in key_metrics.items()]
             return f"Key Metrics for {ticker}:\n" + "\n".join(details)
-        except Exception as e: return f"Error getting company overview: {e}"
+        except Exception as e: return f"Error getting company overview: {ticker}: {e}"
 
 # --- OPTIMIZED AGENT CREATION ---
 @st.cache_resource
 def get_financial_agent():
-    """Creates a single, token-efficient financial agent."""
     return Agent(
         name="Financial Analyst",
         role="You are a helpful financial analyst. You have access to stock news, company overviews, and web search.",
-        # --- THIS IS THE FIX ---
         model=Groq(id="llama-3.3-70b-versatile", api_key=groq_api_key),
         tools=[AlphaVantageTools(), DuckDuckGo()],
         instructions=[
@@ -94,12 +90,18 @@ else:
             placeholder = st.empty()
             full_response = ""
             try:
+                # --- THIS IS THE FINAL, CORRECTED LOOP ---
                 for chunk in financial_agent.run(prompt, stream=True):
-                    full_response += chunk
-                    placeholder.markdown(full_response + "▌")
+                    # We ONLY care about the string chunks for our UI
+                    if isinstance(chunk, str):
+                        full_response += chunk
+                        placeholder.markdown(full_response + "▌")
+                    # All other objects (like RunResponse) are ignored.
+                
                 placeholder.markdown(full_response)
             except Exception as e:
                 full_response = "Sorry, an error occurred. The daily token limit may have been reached or the external data source is unavailable. Please try again in a few minutes."
-                full_response += f"\n\n**Debug Info:**\n```\n{traceback.format_exc()}\n```"
+                # Uncomment the line below if you want to see debug info in the UI
+                # full_response += f"\n\n**Debug Info:**\n```\n{traceback.format_exc()}\n```"
                 placeholder.markdown(full_response)
         st.session_state.messages.append({"role": "assistant", "content": full_response})
