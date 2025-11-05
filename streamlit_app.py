@@ -1,4 +1,4 @@
-# streamlit_app.py (FINAL VERSION with Truncation)
+# streamlit_app.py (FINAL POLISHED VERSION)
 
 import os
 import streamlit as st
@@ -21,7 +21,6 @@ load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY") or st.secrets.get("ALPHA_VANTAGE_API_KEY")
 
-# --- THIS IS OUR FINAL, WORKING TOOL ---
 class AlphaVantageTools(Toolkit):
     def __init__(self, api_key: str | None = None, stock_news: bool = True, company_overview: bool = True):
         super().__init__(name="alpha_vantage_tools")
@@ -39,7 +38,6 @@ class AlphaVantageTools(Toolkit):
             if "feed" not in data or not data["feed"]: return f"No news found for {ticker}."
             articles = [f"- **{a['title']}**\n  - Summary: {a['summary']}" for a in data["feed"]]
             full_output = "Latest News:\n" + "\n".join(articles)
-            # --- THE FIX: Truncate the output to a safe length ---
             return full_output[:3500] + "..." if len(full_output) > 3500 else full_output
         except Exception as e: return f"Error getting news for {ticker}: {e}"
 
@@ -50,19 +48,33 @@ class AlphaVantageTools(Toolkit):
             if overview.empty: return f"No company overview found for {ticker}."
             details = [f"**{key}**: {value[0]}" for key, value in overview.items()]
             full_output = f"Company Overview for {ticker}:\n" + "\n".join(details)
-            # --- THE FIX: Truncate the output to a safe length ---
             return full_output[:3500] + "..." if len(full_output) > 3500 else full_output
         except Exception as e: return f"Error getting company overview for {ticker}: {e}"
 
 @st.cache_resource
 def get_multi_ai_agent():
     model_id = "qwen/qwen3-32b" # Stick with this optimal model
+    
     web_search_agent = Agent(name="Web Search Agent", role="Search the web for information.", model=Groq(id=model_id, api_key=groq_api_key), tools=[DuckDuckGo()], markdown=True)
+    
     finance_agent = Agent(name="Finance AI Agent", model=Groq(id=model_id, api_key=groq_api_key), role="You are a world-class financial analyst.", tools=[AlphaVantageTools()], instructions=["Use tables to display data"], markdown=True)
-    multi_ai_agent = Agent(team=[web_search_agent, finance_agent], model=Groq(id=model_id, api_key=groq_api_key), instructions=["Always include sources", "Use tables to display data", "When delegating tasks, provide clear details in the 'additional_information' field for the specialist agent."], markdown=True)
+    
+    # --- THIS IS THE AGENT WITH THE FINAL FIX ---
+    multi_ai_agent = Agent(
+        team=[web_search_agent, finance_agent],
+        model=Groq(id=model_id, api_key=groq_api_key),
+        instructions=[
+            "Always include sources", 
+            "Use tables to display data",
+            "When delegating tasks, provide clear details in the 'additional_information' field for the specialist agent.",
+            # --- THIS NEW LINE IS THE FIX ---
+            "If the user's query is unclear, ambiguous, or too short, ask for more details to clarify their intent."
+        ],
+        markdown=True,
+    )
     return multi_ai_agent
 
-# --- STREAMLIT UI (No changes needed) ---
+# --- STREAMLIT UI (No changes needed from here down) ---
 st.set_page_config(page_title="Financial AI Agent", page_icon="📈")
 st.title("📈 Financial AI Agent")
 if not groq_api_key or not alpha_vantage_api_key:
@@ -85,7 +97,7 @@ else:
             full_response = ""
             try:
                 for chunk in multi_ai_agent.run(prompt, stream=True):
-                    if isinstance(chunk, dict) and "content" in chunk and chunk["content"] is not None:
+                    if isinstance(chunk, dict) and "content" in chunk and "content" is not None:
                         full_response += chunk["content"]
                         placeholder.markdown(full_response + "▌")
                     elif isinstance(chunk, str):
@@ -101,5 +113,4 @@ else:
             except Exception as e:
                 full_response = "Sorry, an error occurred. This can happen if the external data source is slow or unavailable. Please try your request again in a moment."
                 placeholder.markdown(full_response)
-                full_response += f"\n\n**Debug Info:**\n```\n{traceback.format_exc()}\n```"
         st.session_state.messages.append({"role": "assistant", "content": full_response})
