@@ -1,4 +1,4 @@
-# streamlit_app.py (FINAL POLISHED VERSION)
+# streamlit_app.py (FINAL SIMPLIFIED AGENT VERSION)
 
 import os
 import streamlit as st
@@ -22,6 +22,7 @@ groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY") or st.secrets.get("ALPHA_VANTAGE_API_KEY")
 
 class AlphaVantageTools(Toolkit):
+    # The AlphaVantageTools class is perfect, no changes needed here.
     def __init__(self, api_key: str | None = None, stock_news: bool = True, company_overview: bool = True):
         super().__init__(name="alpha_vantage_tools")
         self.api_key = api_key or alpha_vantage_api_key
@@ -51,66 +52,70 @@ class AlphaVantageTools(Toolkit):
             return full_output[:3500] + "..." if len(full_output) > 3500 else full_output
         except Exception as e: return f"Error getting company overview for {ticker}: {e}"
 
+# --- THIS IS THE NEW, SIMPLIFIED AGENT CREATION ---
 @st.cache_resource
-def get_multi_ai_agent():
-    model_id = "qwen/qwen3-32b" # Stick with this optimal model
+def get_financial_agent():
+    """This function creates a single, powerful financial agent."""
     
-    web_search_agent = Agent(name="Web Search Agent", role="Search the web for information.", model=Groq(id=model_id, api_key=groq_api_key), tools=[DuckDuckGo()], markdown=True)
+    # We are going back to the most powerful model to ensure it works.
+    # The simpler structure should reduce token usage.
+    model_id = "llama-3.3-70b-versatile" 
     
-    finance_agent = Agent(name="Finance AI Agent", model=Groq(id=model_id, api_key=groq_api_key), role="You are a world-class financial analyst.", tools=[AlphaVantageTools()], instructions=["Use tables to display data"], markdown=True)
-    
-    # --- THIS IS THE AGENT WITH THE FINAL FIX ---
-    multi_ai_agent = Agent(
-        team=[web_search_agent, finance_agent],
+    financial_agent = Agent(
+        name="Financial AI Agent",
+        role="You are a world-class financial analyst. Your goal is to help users by accessing financial data and web search.",
         model=Groq(id=model_id, api_key=groq_api_key),
+        # Give the SINGLE agent ALL the tools
+        tools=[AlphaVantageTools(), DuckDuckGo()],
         instructions=[
-            "Always include sources", 
-            "Use tables to display data",
-            "When delegating tasks, provide clear details in the 'additional_information' field for the specialist agent.",
-            # --- THIS NEW LINE IS THE FIX ---
-            "If the user's query is unclear, ambiguous, or too short, ask for more details to clarify their intent."
+            "First, understand the user's query.",
+            "Then, choose the best tool to answer their question (either financial data or web search).",
+            "Present the answer clearly to the user, using tables and formatting where appropriate.",
+            "If the user's query is unclear, ask for clarification."
         ],
         markdown=True,
     )
-    return multi_ai_agent
+    return financial_agent
 
-# --- STREAMLIT UI (No changes needed from here down) ---
+# --- STREAMLIT UI (Only one line changed) ---
 st.set_page_config(page_title="Financial AI Agent", page_icon="📈")
 st.title("📈 Financial AI Agent")
 if not groq_api_key or not alpha_vantage_api_key:
     st.error("API keys are not configured. Please add GROQ_API_KEY and ALPHA_VANTAGE_API_KEY to your Streamlit secrets.")
 else:
     st.sidebar.markdown("### Built by Kavya Telang")
-    st.sidebar.markdown("This multi-agent assistant can search the web and access real-time financial data.")
-    multi_ai_agent = get_multi_ai_agent()
+    st.sidebar.markdown("This assistant can search the web and access real-time financial data.")
+    
+    # Get our new, single agent
+    financial_agent = get_financial_agent() 
+    
     if "messages" not in st.session_state:
         st.session_state.messages = [{"role": "assistant", "content": "Hi! How can I help you with your financial research today?"}]
+    
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            
     if prompt := st.chat_input("Ask me about stocks, news, and more..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
+            
         with st.chat_message("assistant"):
             placeholder = st.empty()
             full_response = ""
             try:
-                for chunk in multi_ai_agent.run(prompt, stream=True):
-                    if isinstance(chunk, dict) and "content" in chunk and "content" is not None:
+                # Run our new, single agent
+                for chunk in financial_agent.run(prompt, stream=True): 
+                    if isinstance(chunk, dict) and "content" in chunk and chunk["content"] is not None:
                         full_response += chunk["content"]
                         placeholder.markdown(full_response + "▌")
                     elif isinstance(chunk, str):
                         full_response += chunk
                         placeholder.markdown(full_response + "▌")
-                    elif isinstance(chunk, dict) and "tool_name" in chunk:
-                        tool_name = chunk["tool_name"]
-                        if tool_name == "transfer_task_to_finance_ai_agent":
-                            placeholder.markdown("🔍 Accessing financial data...")
-                        elif tool_name == "transfer_task_to_web_search_agent":
-                            placeholder.markdown("🌐 Searching the web...")
+                    # No need to show "thinking" anymore as it's simpler
                 placeholder.markdown(full_response)
             except Exception as e:
-                full_response = "Sorry, an error occurred. This can happen if the external data source is slow or unavailable. Please try your request again in a moment."
+                full_response = "Sorry, an error occurred. This can happen if an external data source is slow or if the daily token limit has been reached. Please try again in a few minutes."
                 placeholder.markdown(full_response)
         st.session_state.messages.append({"role": "assistant", "content": full_response})
