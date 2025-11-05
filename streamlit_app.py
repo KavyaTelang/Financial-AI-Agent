@@ -32,29 +32,24 @@ def get_multi_ai_agent():
         instructions=["Use tables to display data"],
         markdown=True,
     )
-    
-    # --- THIS IS THE AGENT WITH THE FIX ---
     multi_ai_agent = Agent(
         team=[web_search_agent, finance_agent],
         model=Groq(id="llama-3.3-70b-versatile"),
         instructions=[
             "Always include sources", 
             "Use tables to display data",
-            # --- THIS NEW LINE IS THE FIX ---
             "When delegating tasks, provide clear details in the 'additional_information' field for the specialist agent."
         ],
         markdown=True,
     )
     return multi_ai_agent
 
-# --- STREAMLIT UI (No changes from here down) ---
+# --- STREAMLIT UI ---
 
 st.set_page_config(page_title="Financial AI Agent", page_icon="📈")
 st.title("📈 Financial AI Agent")
 st.sidebar.markdown("### Built by Kavya Telang")
 st.sidebar.markdown("This multi-agent assistant can search the web and access real-time financial data.")
-
-show_debug_output = st.sidebar.checkbox("Show Debug Output", value=False)
 
 multi_ai_agent = get_multi_ai_agent()
 
@@ -75,16 +70,24 @@ if prompt := st.chat_input("Ask me about stocks, news, and more..."):
         full_response = ""
         
         try:
+            # --- THIS IS THE FINAL, UPGRADED LOOP ---
             for chunk in multi_ai_agent.run(prompt, stream=True):
+                # Check for user-facing text content
                 if isinstance(chunk, dict) and "content" in chunk and chunk["content"] is not None:
                     full_response += chunk["content"]
                     placeholder.markdown(full_response + "▌")
                 elif isinstance(chunk, str):
                     full_response += chunk
                     placeholder.markdown(full_response + "▌")
-                elif show_debug_output:
-                    st.write(chunk)
-            
+                
+                # Check for tool call updates to show the "thinking" process
+                elif isinstance(chunk, dict) and "tool_name" in chunk:
+                    tool_name = chunk["tool_name"]
+                    if tool_name == "transfer_task_to_finance_ai_agent":
+                        placeholder.markdown("🔍 Accessing financial data...")
+                    elif tool_name == "transfer_task_to_web_search_agent":
+                        placeholder.markdown("🌐 Searching the web...")
+
             placeholder.markdown(full_response)
         
         except Exception as e:
