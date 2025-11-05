@@ -5,3 +5,4 @@ groq
 openai
 streamlit
 alpha-vantage==3.0.0
+requests

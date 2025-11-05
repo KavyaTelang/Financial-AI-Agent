@@ -1,68 +1,129 @@
-# streamlit_app.py (AGGRESSIVE INSTALLER DIAGNOSTIC)
+# streamlit_app.py (FINAL VERSION - Manual API Call)
 
+import os
 import streamlit as st
-import subprocess
-import sys
+from dotenv import load_dotenv
+import traceback
+import requests # We need the requests library to make web calls
 
-st.set_page_config(page_title="Installation Diagnostics", layout="wide")
-st.title("🔬 Aggressive Dependency Installation")
+# Phidata imports
+from phi.agent import Agent
+from phi.model.groq import Groq
+from phi.tools.duckduckgo import DuckDuckGo
+from phi.tools.toolkit import Toolkit
 
-st.info("This script will attempt to install the required packages directly.")
+# Alpha Vantage library import (we still use it for the working parts)
+from alpha_vantage.fundamentaldata import FundamentalData
 
-# The list of packages we need to install
-packages = [
-    "phidata==2.7.7",
-    "python-dotenv",
-    "duckduckgo-search",
-    "groq",
-    "openai",
-    "alpha-vantage==3.0.0"
-]
+# Load environment variables
+load_dotenv()
 
-# --- Installation Phase ---
-st.header("1. Attempting to Install Packages")
+# Get API keys safely for the server environment
+groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY") or st.secrets.get("ALPHA_VANTAGE_API_KEY")
 
-for package in packages:
-    st.write(f"--- Installing `{package}` ---")
-    try:
-        # We use subprocess to run the pip install command
-        result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'install', package],
-            capture_output=True,
-            text=True,
-            check=True  # This will raise an error if pip fails
-        )
-        st.success(f"Successfully installed `{package}`.")
-        # Show the output from pip
-        st.code(result.stdout)
-    except subprocess.CalledProcessError as e:
-        # This will catch errors from the pip command itself
-        st.error(f"FAILED to install `{package}`. Pip returned a non-zero exit code.")
-        st.write("Pip Standard Output:")
-        st.code(e.stdout)
-        st.write("Pip Standard Error:")
-        st.code(e.stderr)
-    except Exception as e:
-        # This will catch other errors, like the command not being found
-        st.error(f"An unexpected error occurred while trying to install `{package}`: {e}")
+# --- THIS IS OUR FINAL, WORKING TOOL ---
+class AlphaVantageTools(Toolkit):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        stock_news: bool = True,
+        company_overview: bool = True,
+    ):
+        super().__init__(name="alpha_vantage_tools")
+        self.api_key = api_key or alpha_vantage_api_key
+        if not self.api_key:
+            raise ValueError("Alpha Vantage API key not found.")
+        if stock_news:
+            self.register(self.get_stock_news_and_sentiment) # Renamed for clarity
+        if company_overview:
+            self.register(self.get_company_overview)
 
-# --- Verification Phase ---
-st.header("2. Verifying Installation (`pip list`)")
+    def get_stock_news_and_sentiment(self, ticker: str) -> str:
+        """
+        Get the latest news and sentiment for a stock ticker from Alpha Vantage
+        by making a direct API call.
+        """
+        st.write(f"Getting news for {ticker}...") # Debug print
+        try:
+            # Construct the URL exactly as the documentation shows
+            url = f'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers={ticker}&limit=5&apikey={self.api_key}'
+            r = requests.get(url)
+            data = r.json()
 
-try:
-    # Run pip list again to see if the packages are there now
-    result = subprocess.run(['pip', 'list'], capture_output=True, text=True)
-    st.code(result.stdout)
-except Exception as e:
-    st.error(f"Could not run 'pip list' after installation attempts: {e}")
+            if "feed" not in data or not data["feed"]:
+                return f"No news found for {ticker}."
+            
+            articles = []
+            for article in data["feed"]:
+                articles.append(
+                    f"- **{article['title']}**\n  - Source: {article['source']}\n  - Summary: {article['summary']}\n  - URL: {article['url']}"
+                )
+            return "Latest News:\n" + "\n".join(articles)
+        except Exception as e:
+            return f"Error getting news for {ticker}: {e}"
 
+    def get_company_overview(self, ticker: str) -> str:
+        """
+        Get the company overview and fundamentals for a stock ticker.
+        """
+        st.write(f"Getting overview for {ticker}...") # Debug print
+        try:
+            fd = FundamentalData(key=self.api_key, output_format='pandas', treat_info_as_error=True, timeout=30)
+            overview, _ = fd.get_company_overview(symbol=ticker)
+            if overview.empty:
+                return f"No company overview found for {ticker}."
+            details = [f"**{key}**: {value[0]}" for key, value in overview.items()]
+            return f"Company Overview for {ticker}:\n" + "\n".join(details)
+        except Exception as e:
+            return f"Error getting company overview for {ticker}: {e}"
 
-# --- Import Test Phase ---
-st.header("3. Attempting to Import `alpha_vantage.newsandsentiment`")
-try:
-    st.info("Now attempting: from alpha_vantage.newsandsentiment import NewsAndSentiment")
-    from alpha_vantage.newsandsentiment import NewsAndSentiment
-    st.success("✅ SUCCESS: The module was imported correctly after manual installation!")
-except Exception as e:
-    st.error("❌ FAILED: The import still failed. See the package installation logs above for clues.")
-    st.code(str(e))
+@st.cache_resource
+def get_multi_ai_agent():
+    # Agent definitions are the same
+    web_search_agent = Agent(name="Web Search Agent", role="Search the web for information.", model=Groq(id="llama-3.3-70b-versatile", api_key=groq_api_key), tools=[DuckDuckGo()], markdown=True)
+    finance_agent = Agent(name="Finance AI Agent", model=Groq(id="llama-3.3-70b-versatile", api_key=groq_api_key), role="You are a world-class financial analyst.", tools=[AlphaVantageTools()], instructions=["Use tables to display data"], markdown=True)
+    multi_ai_agent = Agent(team=[web_search_agent, finance_agent], model=Groq(id="llama-3.3-70b-versatile", api_key=groq_api_key), instructions=["Always include sources", "Use tables to display data", "When delegating tasks, provide clear details in the 'additional_information' field for the specialist agent."], markdown=True)
+    return multi_ai_agent
+
+# --- STREAMLIT UI (No changes needed) ---
+st.set_page_config(page_title="Financial AI Agent", page_icon="📈")
+st.title("📈 Financial AI Agent")
+if not groq_api_key or not alpha_vantage_api_key:
+    st.error("API keys are not configured. Please add GROQ_API_KEY and ALPHA_VANTAGE_API_KEY to your Streamlit secrets.")
+else:
+    st.sidebar.markdown("### Built by Kavya Telang")
+    st.sidebar.markdown("This multi-agent assistant can search the web and access real-time financial data.")
+    multi_ai_agent = get_multi_ai_agent()
+    if "messages" not in st.session_state:
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! How can I help you with your financial research today?"}]
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    if prompt := st.chat_input("Ask me about stocks, news, and more..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            full_response = ""
+            try:
+                for chunk in multi_ai_agent.run(prompt, stream=True):
+                    if isinstance(chunk, dict) and "content" in chunk and chunk["content"] is not None:
+                        full_response += chunk["content"]
+                        placeholder.markdown(full_response + "▌")
+                    elif isinstance(chunk, str):
+                        full_response += chunk
+                        placeholder.markdown(full_response + "▌")
+                    elif isinstance(chunk, dict) and "tool_name" in chunk:
+                        tool_name = chunk["tool_name"]
+                        if tool_name == "transfer_task_to_finance_ai_agent":
+                            placeholder.markdown("🔍 Accessing financial data...")
+                        elif tool_name == "transfer_task_to_web_search_agent":
+                            placeholder.markdown("🌐 Searching the web...")
+                placeholder.markdown(full_response)
+            except Exception as e:
+                full_response = "Sorry, an error occurred. This can happen if the external data source is slow or unavailable. Please try your request again in a moment."
+                placeholder.markdown(full_response)
+                traceback.print_exc()
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
