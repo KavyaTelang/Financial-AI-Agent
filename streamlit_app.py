@@ -233,7 +233,7 @@ def run_agent(query: str, history: list) -> str:
 
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="StockSense", page_icon="📈")
-st.title("Financial AI Agent")
+st.title("StockSense")
 
 if not groq_api_key:
     st.error("⚠️ GROQ_API_KEY is not configured.")
