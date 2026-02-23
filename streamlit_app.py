@@ -495,6 +495,29 @@ with st.sidebar:
         """, unsafe_allow_html=True)
 
     st.markdown('<div class="sidebar-section">Try Asking</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    <style>
+    div[data-testid="stSidebar"] .stButton > button {
+        background: #111 !important;
+        border: 1px solid #222 !important;
+        border-radius: 2px !important;
+        color: #555 !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.68rem !important;
+        padding: 4px 10px !important;
+        width: 100% !important;
+        text-align: left !important;
+        margin-bottom: 2px !important;
+    }
+    div[data-testid="stSidebar"] .stButton > button:hover {
+        border-color: #00ff88 !important;
+        color: #00ff88 !important;
+        background: #0d1a13 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     suggestions = [
         "Latest news on Nvidia",
         "Compare GOOGL and TSLA",
@@ -504,7 +527,9 @@ with st.sidebar:
         "Analyst rating for Amazon",
     ]
     for s in suggestions:
-        st.markdown(f'<div class="chip">› {s}</div>', unsafe_allow_html=True)
+        if st.button(f"› {s}", key=f"chip_{s}"):
+            st.session_state["prefill"] = s
+            st.rerun()
 
     st.markdown('<div class="sidebar-section">Powered By</div>', unsafe_allow_html=True)
     st.markdown("""
@@ -527,15 +552,60 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "**Welcome to StockSense.** I'm your all-in-one stock, finance, and market advisor.\n\nAsk me about live stock prices, company fundamentals, analyst recommendations, market news, or any finance concept — I'll find the answer for you."}
+    st.session_state.messages = []
+if "prefill" not in st.session_state:
+    st.session_state.prefill = None
+
+# Show example cards when chat is empty
+if not st.session_state.messages:
+    st.markdown("""
+    <div style="margin: 8px 0 28px 0;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:0.65rem; color:#333; letter-spacing:2px; margin-bottom:16px;">
+            WHAT CAN I HELP YOU WITH?
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    examples = [
+        ("📰", "Market News", "Latest news on Nvidia", "Real-time headlines & analysis"),
+        ("📊", "Stock Data", "Compare GOOGL and TSLA", "Live prices & fundamentals"),
+        ("🎓", "Finance 101", "What is a PE ratio?", "Concepts explained simply"),
+        ("📈", "Analyst Ratings", "Analyst rating for Amazon", "Buy / Hold / Sell signals"),
+        ("🏢", "Company Deep Dive", "Apple fundamentals", "Revenue, margins, EBITDA"),
+        ("🌍", "Macro Markets", "How does inflation affect stocks?", "Big picture market forces"),
     ]
+
+    cols = st.columns(3)
+    for i, (icon, title, query, desc) in enumerate(examples):
+        with cols[i % 3]:
+            st.markdown(f"""
+            <div style="
+                background:#111;
+                border:1px solid #1e1e1e;
+                border-radius:4px;
+                padding:14px 16px;
+                margin-bottom:4px;
+            ">
+                <div style="font-size:1.1rem; margin-bottom:6px;">{icon}</div>
+                <div style="font-family:'IBM Plex Mono',monospace; font-size:0.65rem; color:#00ff88; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px;">{title}</div>
+                <div style="font-size:0.8rem; color:#aaa; margin-bottom:6px;">"{query}"</div>
+                <div style="font-size:0.7rem; color:#444;">{desc}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("Try →", key=f"ex_{i}"):
+                st.session_state["prefill"] = query
+                st.rerun()
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Enter ticker, ask about markets, or any finance question..."):
+# Handle prefilled prompt from sidebar or example cards
+prefilled = st.session_state.pop("prefill", None)
+user_input = st.chat_input("Enter ticker, ask about markets, or any finance question...")
+prompt = prefilled or user_input
+
+if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
