@@ -1,5 +1,4 @@
 groq
 yfinance
 streamlit
-duckduckgo-search
 requests
