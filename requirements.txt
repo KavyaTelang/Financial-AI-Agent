@@ -1,8 +1,5 @@
-phidata==2.7.7
-python-dotenv
-duckduckgo-search
 groq
-openai
-streamlit
 yfinance
+streamlit
+duckduckgo-search
 requests
