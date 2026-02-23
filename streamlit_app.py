@@ -67,15 +67,18 @@ def get_analyst_recommendations(ticker: str) -> str:
 
 
 def web_search(query: str) -> str:
-    """Search the web using DuckDuckGo and return top results."""
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5))
+            results = list(ddgs.text(query, max_results=6))
         if not results:
             return "No results found."
         formatted = []
         for r in results:
-            formatted.append(f"Title: {r.get('title', 'N/A')}\nURL: {r.get('href', 'N/A')}\nSummary: {r.get('body', 'N/A')}\n")
+            formatted.append(
+                f"Title: {r.get('title', 'N/A')}\n"
+                f"URL: {r.get('href', 'N/A')}\n"
+                f"Summary: {r.get('body', 'N/A')}"
+            )
         return "\n---\n".join(formatted)
     except Exception as e:
         return f"Error performing web search: {e}"
@@ -87,11 +90,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_stock_price",
-            "description": "Get the current stock price and trading stats (day high/low, 52-week range, market cap, volume) for a ticker symbol.",
+            "description": "Get the current stock price and trading stats for a ticker symbol.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "ticker": {"type": "string", "description": "Stock ticker symbol e.g. AAPL, TSLA, GOOGL"}
+                    "ticker": {"type": "string", "description": "Stock ticker e.g. AAPL, TSLA, GOOGL, NVDA"}
                 },
                 "required": ["ticker"]
             }
@@ -101,11 +104,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_company_overview",
-            "description": "Get fundamental company data: sector, industry, PE ratio, EPS, EBITDA, revenue, profit margin, ROE, debt/equity, and business description.",
+            "description": "Get fundamental company data: sector, PE ratio, EBITDA, revenue, margins, and business description.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "ticker": {"type": "string", "description": "Stock ticker symbol e.g. AAPL, TSLA, GOOGL"}
+                    "ticker": {"type": "string", "description": "Stock ticker e.g. AAPL, TSLA, GOOGL, NVDA"}
                 },
                 "required": ["ticker"]
             }
@@ -119,7 +122,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "ticker": {"type": "string", "description": "Stock ticker symbol e.g. AAPL, TSLA, GOOGL"}
+                    "ticker": {"type": "string", "description": "Stock ticker e.g. AAPL, TSLA, GOOGL, NVDA"}
                 },
                 "required": ["ticker"]
             }
@@ -130,15 +133,16 @@ TOOLS = [
         "function": {
             "name": "web_search",
             "description": (
-                "Search the web for any information. Use this for: general finance knowledge, "
-                "recent news about a company or market, explanations of financial concepts "
-                "(e.g. what is a PE ratio, how does inflation affect stocks), macroeconomic topics, "
-                "earnings reports, or anything not covered by the stock data tools."
+                "Search the web for real-time information. "
+                "ALWAYS use this tool for: latest news about any company or stock, "
+                "recent earnings results, market events, financial concept explanations, "
+                "macroeconomic topics, IPOs, mergers, acquisitions, or anything knowledge-based. "
+                "NEVER answer news or knowledge questions from memory — always search first."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "The search query to look up"}
+                    "query": {"type": "string", "description": "The search query"}
                 },
                 "required": ["query"]
             }
@@ -153,21 +157,26 @@ TOOL_MAP = {
     "web_search": web_search,
 }
 
-SYSTEM_PROMPT = """You are a world-class financial analyst assistant with access to real-time stock data and web search.
+SYSTEM_PROMPT = """You are a world-class financial analyst assistant with access to real-time tools.
 
-Tool usage guidelines:
-- For stock prices, trading stats → use get_stock_price
-- For fundamentals (PE ratio, revenue, margins) → use get_company_overview
-- For analyst sentiment → use get_analyst_recommendations
-- For recent news, earnings, market events, or any knowledge/concept questions → use web_search
-- For comparisons between stocks, call tools for each ticker one at a time
-- You can use multiple tools in sequence to build a complete answer
+CRITICAL RULES — you must follow these without exception:
+1. NEVER answer from your own training knowledge. ALWAYS call a tool first.
+2. For ANY question about news, recent events, or what's happening with a company → call web_search immediately.
+3. For stock prices or trading data → call get_stock_price.
+4. For fundamentals (PE ratio, revenue, EBITDA etc.) → call get_company_overview.
+5. For analyst ratings → call get_analyst_recommendations.
+6. For comparisons → call tools for each ticker one at a time.
+7. You may chain multiple tool calls to build a complete answer.
 
-Response guidelines:
-- Always use tools to get current data before answering — never rely on your training knowledge for stock prices or recent events
-- Present financial data in clean markdown tables or bullet points
-- For knowledge questions (e.g. "what is EBITDA"), use web_search to give an accurate, sourced answer
-- Always finish with a concise summary
+FORBIDDEN responses (never say these):
+- "You can find this information online..."
+- "I recommend checking a news source..."
+- "My knowledge only goes up to..."
+- Any response that tells the user to search elsewhere.
+
+You have the web_search tool — USE IT. The user expects you to find the answer, not redirect them.
+
+After getting tool results, present findings in clean markdown with bullet points or tables, then give a brief analytical summary.
 """
 
 
@@ -179,20 +188,22 @@ def run_agent(user_query: str, history: list) -> str:
         messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": user_query})
 
-    for _ in range(8):  # max 8 tool call iterations
+    for _ in range(8):
         response = client.chat.completions.create(
             model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=messages,
             tools=TOOLS,
-            tool_choice="auto",
+            tool_choice="required",  # Force the model to always call a tool on first pass
             max_tokens=2048,
         )
 
         msg = response.choices[0].message
 
+        # If no tool calls returned, we have the final answer
         if not msg.tool_calls:
             return msg.content
 
+        # Add assistant message with tool calls to history
         messages.append({
             "role": "assistant",
             "content": msg.content or "",
@@ -205,6 +216,7 @@ def run_agent(user_query: str, history: list) -> str:
             ]
         })
 
+        # Execute each tool and feed results back
         for tc in msg.tool_calls:
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments)
@@ -215,7 +227,42 @@ def run_agent(user_query: str, history: list) -> str:
                 "content": result,
             })
 
-    return "I was unable to complete the analysis after multiple attempts. Please try rephrasing your question."
+        # After first tool call round, switch to auto so it can finish naturally
+        response = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=messages,
+            tools=TOOLS,
+            tool_choice="auto",
+            max_tokens=2048,
+        )
+        msg = response.choices[0].message
+
+        if not msg.tool_calls:
+            return msg.content
+
+        # If it wants more tool calls, add them and loop again
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments}
+                } for tc in msg.tool_calls
+            ]
+        })
+        for tc in msg.tool_calls:
+            fn_name = tc.function.name
+            fn_args = json.loads(tc.function.arguments)
+            result = TOOL_MAP[fn_name](**fn_args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
+
+    return "I was unable to complete the analysis. Please try rephrasing your question."
 
 
 # --- STREAMLIT UI ---
@@ -240,10 +287,10 @@ st.sidebar.markdown("Ask me anything — stock prices, fundamentals, news, or fi
 st.sidebar.markdown("**Powered by:** Groq · Llama 4 Scout · yFinance · DuckDuckGo")
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Try asking:**")
+st.sidebar.markdown("- Latest news on Nvidia")
 st.sidebar.markdown("- Compare GOOGL and TSLA")
 st.sidebar.markdown("- What is a PE ratio?")
-st.sidebar.markdown("- Latest news on Nvidia")
-st.sidebar.markdown("- How does inflation affect the stock market?")
+st.sidebar.markdown("- How does inflation affect stocks?")
 st.sidebar.markdown("- What do analysts think about Apple?")
 
 if "messages" not in st.session_state:
@@ -261,7 +308,7 @@ if prompt := st.chat_input("Ask about stocks, markets, or finance concepts..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Analyzing..."):
+        with st.spinner("Searching and analyzing..."):
             try:
                 response = run_agent(prompt, st.session_state.messages[:-1])
             except Exception as e:
