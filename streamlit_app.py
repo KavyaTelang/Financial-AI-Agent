@@ -233,7 +233,7 @@ def run_agent(query: str, history: list) -> str:
 
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="StockSense", page_icon="📈")
-st.title("StockSense")
+st.title("📈 StockSense")
 
 if not groq_api_key:
     st.error("⚠️ GROQ_API_KEY is not configured.")
@@ -248,8 +248,9 @@ if not groq_api_key:
     """)
     st.stop()
 
-st.sidebar.markdown("### StockSense")
+st.sidebar.markdown("### 📊 StockSense")
 st.sidebar.markdown("Ask me anything — stock prices, fundamentals, news, or finance concepts.")
+st.sidebar.markdown("**Powered by:** Groq · LLaMA 3.3 · Groq Compound · yFinance")
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Try asking:**")
 st.sidebar.markdown("- Latest news on Nvidia")
@@ -257,12 +258,10 @@ st.sidebar.markdown("- Compare GOOGL and TSLA")
 st.sidebar.markdown("- What is a PE ratio?")
 st.sidebar.markdown("- How does inflation affect stocks?")
 st.sidebar.markdown("- What do analysts think about Apple?")
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Powered by:** Groq · LLaMA 3.3 · Groq Compound · yFinance")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Hi! I'm your Financial AI Agent, StockSense! Ask me about stock prices, company fundamentals, analyst recommendations, market news, or any finance concept."}
+        {"role": "assistant", "content": "Hi! I'm **StockSense** 📈 — your all-in-one stock, finance, and market advisor. Ask me about stock prices, company fundamentals, analyst recommendations, market news, or any finance concept."}
     ]
 
 for message in st.session_state.messages:
