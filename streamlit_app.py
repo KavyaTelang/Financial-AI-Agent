@@ -2,12 +2,11 @@ import streamlit as st
 import yfinance as yf
 import json
 from groq import Groq
-from duckduckgo_search import DDGS
 
 # --- API KEY SETUP ---
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 
-# --- TOOL IMPLEMENTATIONS ---
+# --- YFINANCE TOOL IMPLEMENTATIONS ---
 
 def get_stock_price(ticker: str) -> str:
     try:
@@ -66,31 +65,13 @@ def get_analyst_recommendations(ticker: str) -> str:
         return f"Error fetching recommendations for {ticker}: {e}"
 
 
-def web_search(query: str) -> str:
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=6))
-        if not results:
-            return "No results found."
-        formatted = []
-        for r in results:
-            formatted.append(
-                f"Title: {r.get('title', 'N/A')}\n"
-                f"URL: {r.get('href', 'N/A')}\n"
-                f"Summary: {r.get('body', 'N/A')}"
-            )
-        return "\n---\n".join(formatted)
-    except Exception as e:
-        return f"Error performing web search: {e}"
-
-
-# --- TOOL REGISTRY ---
-TOOLS = [
+# --- TOOL REGISTRY (for stock data agent) ---
+STOCK_TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "get_stock_price",
-            "description": "Get the current stock price and trading stats for a ticker symbol.",
+            "description": "Get current stock price and trading stats for a ticker.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -104,7 +85,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_company_overview",
-            "description": "Get fundamental company data: sector, PE ratio, EBITDA, revenue, margins, and business description.",
+            "description": "Get fundamental company data: sector, PE ratio, EBITDA, revenue, margins.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -128,141 +109,148 @@ TOOLS = [
             }
         }
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": (
-                "Search the web for real-time information. "
-                "ALWAYS use this tool for: latest news about any company or stock, "
-                "recent earnings results, market events, financial concept explanations, "
-                "macroeconomic topics, IPOs, mergers, acquisitions, or anything knowledge-based. "
-                "NEVER answer news or knowledge questions from memory — always search first."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "The search query"}
-                },
-                "required": ["query"]
-            }
-        }
-    }
 ]
 
 TOOL_MAP = {
     "get_stock_price": get_stock_price,
     "get_company_overview": get_company_overview,
     "get_analyst_recommendations": get_analyst_recommendations,
-    "web_search": web_search,
 }
 
-SYSTEM_PROMPT = """You are a world-class financial analyst assistant with access to real-time tools.
+# --- QUERY CLASSIFIER ---
+# Decide whether the question needs live stock data or web search / general knowledge
+CLASSIFIER_PROMPT = """You are a query router for a financial assistant. 
+Classify the user's question into ONE of two categories:
 
-CRITICAL RULES — you must follow these without exception:
-1. NEVER answer from your own training knowledge. ALWAYS call a tool first.
-2. For ANY question about news, recent events, or what's happening with a company → call web_search immediately.
-3. For stock prices or trading data → call get_stock_price.
-4. For fundamentals (PE ratio, revenue, EBITDA etc.) → call get_company_overview.
-5. For analyst ratings → call get_analyst_recommendations.
-6. For comparisons → call tools for each ticker one at a time.
-7. You may chain multiple tool calls to build a complete answer.
+- "stock": questions about specific stock prices, company fundamentals, analyst ratings, 
+  stock comparisons (e.g. "What is Apple's stock price?", "Compare GOOGL and TSLA", "NVDA PE ratio")
+  
+- "web": questions about news, recent events, financial concepts, macroeconomics, 
+  market trends, earnings reports, or anything general 
+  (e.g. "Latest news on Nvidia", "What is a PE ratio?", "How does inflation affect stocks?")
 
-FORBIDDEN responses (never say these):
-- "You can find this information online..."
-- "I recommend checking a news source..."
-- "My knowledge only goes up to..."
-- Any response that tells the user to search elsewhere.
+Reply with ONLY the single word: stock or web"""
 
-You have the web_search tool — USE IT. The user expects you to find the answer, not redirect them.
 
-After getting tool results, present findings in clean markdown with bullet points or tables, then give a brief analytical summary.
+def classify_query(client: Groq, query: str) -> str:
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": CLASSIFIER_PROMPT},
+            {"role": "user", "content": query}
+        ],
+        max_tokens=5,
+        temperature=0,
+    )
+    result = response.choices[0].message.content.strip().lower()
+    return "stock" if "stock" in result else "web"
+
+
+# --- STOCK DATA AGENT ---
+STOCK_SYSTEM_PROMPT = """You are a world-class financial analyst. 
+You have tools to fetch live stock prices, company fundamentals, and analyst recommendations.
+Always call the appropriate tools to get live data — never answer from memory.
+For comparisons, call tools for each ticker one at a time.
+Present results in clean markdown tables or bullet points, then give a brief analytical summary.
 """
 
-
-def run_agent(user_query: str, history: list) -> str:
-    client = Groq(api_key=groq_api_key)
-
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+def run_stock_agent(client: Groq, query: str, history: list) -> str:
+    messages = [{"role": "system", "content": STOCK_SYSTEM_PROMPT}]
     for msg in history[-6:]:
         messages.append({"role": msg["role"], "content": msg["content"]})
-    messages.append({"role": "user", "content": user_query})
+    messages.append({"role": "user", "content": query})
 
     for _ in range(8):
         response = client.chat.completions.create(
             model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=messages,
-            tools=TOOLS,
-            tool_choice="required",  # Force the model to always call a tool on first pass
+            tools=STOCK_TOOLS,
+            tool_choice="required",
             max_tokens=2048,
         )
-
         msg = response.choices[0].message
 
-        # If no tool calls returned, we have the final answer
         if not msg.tool_calls:
             return msg.content
 
-        # Add assistant message with tool calls to history
         messages.append({
             "role": "assistant",
             "content": msg.content or "",
             "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments}
-                } for tc in msg.tool_calls
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls
             ]
         })
 
-        # Execute each tool and feed results back
         for tc in msg.tool_calls:
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments)
             result = TOOL_MAP[fn_name](**fn_args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result,
-            })
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-        # After first tool call round, switch to auto so it can finish naturally
-        response = client.chat.completions.create(
+        # After tools are executed, get the final answer with auto mode
+        follow_up = client.chat.completions.create(
             model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=messages,
-            tools=TOOLS,
+            tools=STOCK_TOOLS,
             tool_choice="auto",
             max_tokens=2048,
         )
-        msg = response.choices[0].message
+        follow_msg = follow_up.choices[0].message
+        if not follow_msg.tool_calls:
+            return follow_msg.content
 
-        if not msg.tool_calls:
-            return msg.content
-
-        # If it wants more tool calls, add them and loop again
+        # If it wants more tools, add them and loop
         messages.append({
             "role": "assistant",
-            "content": msg.content or "",
+            "content": follow_msg.content or "",
             "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments}
-                } for tc in msg.tool_calls
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in follow_msg.tool_calls
             ]
         })
-        for tc in msg.tool_calls:
+        for tc in follow_msg.tool_calls:
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments)
             result = TOOL_MAP[fn_name](**fn_args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result,
-            })
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-    return "I was unable to complete the analysis. Please try rephrasing your question."
+    return "Unable to complete analysis. Please try again."
+
+
+# --- WEB SEARCH AGENT (Groq Compound — web search is built-in, no libraries needed) ---
+WEB_SYSTEM_PROMPT = """You are a world-class financial analyst assistant with access to real-time web search.
+Always search the web to find current, accurate information before answering.
+Present findings clearly with bullet points or tables.
+Always end with a concise analytical summary.
+"""
+
+def run_web_agent(client: Groq, query: str, history: list) -> str:
+    messages = [{"role": "system", "content": WEB_SYSTEM_PROMPT}]
+    for msg in history[-6:]:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": query})
+
+    # groq/compound has web search built in server-side — no external libraries needed
+    response = client.chat.completions.create(
+        model="groq/compound",
+        messages=messages,
+        max_tokens=2048,
+    )
+    return response.choices[0].message.content
+
+
+# --- MAIN AGENT ROUTER ---
+def run_agent(query: str, history: list) -> str:
+    client = Groq(api_key=groq_api_key)
+    query_type = classify_query(client, query)
+
+    if query_type == "stock":
+        return run_stock_agent(client, query, history)
+    else:
+        return run_web_agent(client, query, history)
 
 
 # --- STREAMLIT UI ---
@@ -284,7 +272,7 @@ if not groq_api_key:
 
 st.sidebar.markdown("### 📊 Financial AI Agent")
 st.sidebar.markdown("Ask me anything — stock prices, fundamentals, news, or finance concepts.")
-st.sidebar.markdown("**Powered by:** Groq · Llama 4 Scout · yFinance · DuckDuckGo")
+st.sidebar.markdown("**Powered by:** Groq · Llama 4 Scout · Groq Compound · yFinance")
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Try asking:**")
 st.sidebar.markdown("- Latest news on Nvidia")
